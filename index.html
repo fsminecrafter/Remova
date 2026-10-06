@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>wifi-keyboard</title>
+<style>
+:root{--bg:#f6f6f4;--fg:#1c1c1a;--mut:#80807a;--line:#dcdcd6;--acc:#2f6fed;--ok:#2e9e5b;--bad:#d04b4b}
+:root:not([data-theme="light"]){color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121213;--fg:#e6e6e3;--mut:#7d7d78;--line:#2a2a2c;--acc:#6b9bff}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#121213;--fg:#e6e6e3;--mut:#7d7d78;--line:#2a2a2c;--acc:#6b9bff}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 ui-monospace,"SF Mono",Menlo,Consolas,monospace;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+header b{font-weight:600;margin-right:auto}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--bad)}
+.dot.on{background:var(--ok)}
+button,input{font:inherit;color:inherit;background:none;border:1px solid var(--line);border-radius:6px;padding:7px 14px}
+button{cursor:pointer}
+button:hover{border-color:var(--mut)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.hide{display:none!important}
+#login{margin:auto;display:flex;flex-direction:column;gap:12px;width:min(320px,86vw)}
+#login p{margin:0;color:var(--mut);min-height:1.5em}
+#app{flex:1;display:flex;flex-direction:column;min-height:0}
+#views{display:flex;gap:8px;padding:12px 18px 0}
+#views button[aria-pressed="true"]{border-color:var(--acc);color:var(--acc)}
+#keyboardView{flex:1;display:flex;flex-direction:column;min-height:0}
+#pad{flex:1;margin:18px;border:1px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mut);padding:20px;touch-action:none;user-select:none}
+#pad.locked{border-style:solid;border-color:var(--acc);color:var(--acc)}
+#bar{display:flex;gap:10px;padding:0 18px 18px}
+#bar .grow{flex:1}
+#bar .primary{border-color:var(--acc);color:var(--acc)}
+#filesView{flex:1;display:flex;flex-direction:column;gap:10px;padding:14px 18px 18px;min-height:0}
+.file-toolbar,.file-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.file-toolbar #fileSearch{flex:1;min-width:150px}
+.file-actions button:disabled{opacity:.45;cursor:default}
+#fileCrumbs{display:flex;align-items:center;gap:6px;min-height:32px;overflow:auto;white-space:nowrap;color:var(--mut)}
+#fileCrumbs button{padding:3px 8px}
+#fileList{flex:1;min-height:100px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.file-row{display:grid;grid-template-columns:28px minmax(100px,1fr) auto;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--line)}
+.file-row.selected{background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.file-name{border:0;text-align:left;padding:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-meta{color:var(--mut);font-size:12px;white-space:nowrap}
+#fileStatus{min-height:1.5em;color:var(--mut);font-size:13px}
+#fileEditor{position:fixed;inset:0;background:var(--bg);z-index:2;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 18px env(safe-area-inset-bottom)}
+#editorTop,#editorBottom{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+#editorTop strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:auto}
+#editorBottom{border:0;border-top:1px solid var(--line);justify-content:flex-end}
+#editorText{flex:1;resize:none;width:100%;min-height:0;border:0;border-radius:0;background:transparent;color:var(--fg);font:14px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:16px 0;tab-size:4}
+#editorText:focus{outline:none}
+#sink{position:fixed;opacity:0;width:1px;height:1px;left:0;top:0}
+@media(max-width:560px){header{padding:10px 12px}#filesView{padding:10px 12px 14px}.file-row{grid-template-columns:24px minmax(60px,1fr) auto;gap:4px}.file-meta{font-size:11px}.file-actions{gap:5px}.file-actions button{padding:6px 8px}}
+</style>
+</head>
+<body>
+<header>
+  <b>wifi-keyboard</b>
+  <span class="dot" id="dot"></span>
+  <button id="theme" aria-label="Toggle theme">theme</button>
+  <button id="out" class="hide">log out</button>
+</header>
+
+<div id="login" class="hide">
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+  <button id="go">Unlock</button>
+  <p id="err"></p>
+</div>
+
+<div id="app" class="hide">
+  <nav id="views" aria-label="Views">
+    <button id="showKeyboard" aria-pressed="true">Keyboard</button>
+    <button id="showFiles" aria-pressed="false">Files</button>
+  </nav>
+  <div id="keyboardView">
+    <div id="pad">Type anywhere. Everything goes to tty1.<br>Use Focus mouse to control the pointer.</div>
+    <div id="bar">
+      <button id="focus" class="primary grow">Focus mouse</button>
+      <button id="kb">Keyboard</button>
+    </div>
+  </div>
+  <section id="filesView" class="hide" aria-label="File explorer">
+    <div class="file-toolbar">
+      <button id="fileUp" title="Go to parent folder" aria-label="Go to parent folder">Up</button>
+      <button id="newFolder">New folder</button>
+      <button id="uploadFiles">Upload</button>
+      <input id="filePicker" type="file" multiple class="hide">
+      <input id="fileSearch" type="search" placeholder="Search files" aria-label="Search files">
+    </div>
+    <div class="file-actions">
+      <button data-action="edit" disabled>Edit</button>
+      <button data-action="download" disabled>Download</button>
+      <button data-action="rename" disabled>Rename</button>
+      <button data-action="copy" disabled>Copy</button>
+      <button data-action="move" disabled>Move</button>
+      <button data-action="delete" disabled>Remove</button>
+    </div>
+    <div id="fileCrumbs" aria-label="Current folder"></div>
+    <div id="fileStatus" role="status"></div>
+    <div id="fileList" role="list"></div>
+    <section id="fileEditor" class="hide" aria-label="File editor">
+      <div id="editorTop"><strong id="editorPath"></strong><button id="closeEditor" aria-label="Close editor">Close</button></div>
+      <textarea id="editorText" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="File contents"></textarea>
+      <div id="editorBottom"><span id="editorStatus"></span><button id="saveFile" class="primary">Save</button></div>
+    </section>
+  </section>
+</div>
+<textarea id="sink" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+
+<script>
+const $ = id => document.getElementById(id);
+const root = document.documentElement;
+let ws, hadCode = false, locked = false;
+
+// theme: follows system, toggle overrides
+const saved = (() => { try { return localStorage.getItem("theme"); } catch { return null; } })();
+if (saved) root.dataset.theme = saved;
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme:dark)").matches;
+  const cur = root.dataset.theme || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  root.dataset.theme = next;
+  try { localStorage.setItem("theme", next); } catch {}
+};
+
+// auth
+async function show() {
+  const ok = (await (await fetch("/api/me")).json()).ok;
+  $("login").classList.toggle("hide", ok);
+  $("app").classList.toggle("hide", !ok);
+  $("out").classList.toggle("hide", !ok);
+  if (ok) connect(); else $("pw").focus();
+}
+async function login() {
+  const r = await fetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({password: $("pw").value})});
+  const j = await r.json();
+  $("pw").value = "";
+  if (j.ok) { $("err").textContent = ""; show(); } else $("err").textContent = j.error;
+}
+$("go").onclick = login;
+$("pw").onkeydown = e => { if (e.key === "Enter") login(); };
+$("out").onclick = async () => { ws && ws.close(); await fetch("/api/logout", {method: "POST"}); show(); };
+
+// socket
+function connect() {
+  if (ws && ws.readyState <= 1) return;
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => $("dot").classList.add("on");
+  ws.onclose = () => { $("dot").classList.remove("on"); setTimeout(() => !$("app").classList.contains("hide") && show(), 1500); };
+}
+const send = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
+const active = () => !$("app").classList.contains("hide");
+const keyboardActive = () => active() && !$("keyboardView").classList.contains("hide");
+
+// file explorer
+let filePathCurrent = "", selectedFile = null, searchTimer, listRequest = 0;
+let editorPathValue = "", editorDirty = false;
+const fileActions = [...document.querySelectorAll("[data-action]")];
+const fileApi = async (url, options) => {
+  const response = await fetch(url, options);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "File operation failed.");
+  return result;
+};
+const setFileStatus = message => { $("fileStatus").textContent = message; };
+const setSelection = entry => {
+  selectedFile = entry;
+  fileActions.forEach(button => {
+    button.disabled = !entry || (button.dataset.action === "edit" && entry.directory) ||
+      (button.dataset.action === "download" && entry.directory);
+  });
+  document.querySelectorAll(".file-row").forEach(row => row.classList.toggle("selected", row.dataset.path === (entry && entry.path)));
+};
+function renderCrumbs(path) {
+  const crumbs = $("fileCrumbs");
+  crumbs.replaceChildren();
+  const parts = path ? path.split("/") : [];
+  const rootButton = document.createElement("button");
+  rootButton.textContent = "files";
+  rootButton.onclick = () => loadFiles("");
+  crumbs.append(rootButton);
+  let partial = "";
+  parts.forEach((part, index) => {
+    const divider = document.createElement("span");
+    divider.textContent = "/";
+    const button = document.createElement("button");
+    partial = partial ? partial + "/" + part : part;
+    const target = partial;
+    button.textContent = part;
+    button.onclick = () => loadFiles(target);
+    crumbs.append(divider, button);
+  });
+}
+function renderFiles(entries) {
+  const list = $("fileList");
+  list.replaceChildren();
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "file-meta";
+    empty.textContent = "No files";
+    empty.style.padding = "12px 4px";
+    list.append(empty);
+    return;
+  }
+  entries.forEach(entry => {
+    const row = document.createElement("div");
+    row.className = "file-row";
+    row.dataset.path = entry.path;
+    row.setAttribute("role", "listitem");
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = !!selectedFile && selectedFile.path === entry.path;
+    check.setAttribute("aria-label", "Select " + entry.name);
+    check.onchange = () => setSelection(check.checked ? entry : null);
+    const name = document.createElement("button");
+    name.className = "file-name";
+    name.textContent = (entry.directory ? "[DIR] " : "") + entry.name;
+    name.title = entry.name;
+    name.onclick = () => entry.directory ? loadFiles(entry.path) : openEditor(entry.path);
+    const meta = document.createElement("span");
+    meta.className = "file-meta";
+    meta.textContent = entry.directory ? "folder" : formatSize(entry.size);
+    row.append(check, name, meta);
+    list.append(row);
+    if (selectedFile && selectedFile.path === entry.path) row.classList.add("selected");
+  });
+}
+function formatSize(size) {
+  if (size < 1024) return size + " B";
+  if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
+  return (size / (1024 * 1024)).toFixed(1) + " MB";
+}
+async function loadFiles(path = filePathCurrent) {
+  const request = ++listRequest;
+  filePathCurrent = path;
+  selectedFile = null;
+  setSelection(null);
+  $("fileSearch").value = "";
+  renderCrumbs(path);
+  setFileStatus("Loading...");
+  try {
+    const data = await fileApi("/api/files?path=" + encodeURIComponent(path));
+    if (request !== listRequest) return;
+    renderFiles(data.entries);
+    setFileStatus(data.entries.length + (data.entries.length === 1 ? " item" : " items"));
+  } catch (error) { setFileStatus(error.message); }
+}
+async function searchFiles(query) {
+  const request = ++listRequest;
+  selectedFile = null;
+  setSelection(null);
+  if (!query) { loadFiles(filePathCurrent); return; }
+  $("fileCrumbs").textContent = "Search results";
+  setFileStatus("Searching...");
+  try {
+    const data = await fileApi("/api/files/search?q=" + encodeURIComponent(query));
+    if (request !== listRequest) return;
+    renderFiles(data.entries);
+    setFileStatus(data.entries.length + " result" + (data.entries.length === 1 ? "" : "s"));
+  } catch (error) { setFileStatus(error.message); }
+}
+async function openEditor(path) {
+  try {
+    const data = await fileApi("/api/files/content?path=" + encodeURIComponent(path));
+    editorPathValue = data.path;
+    editorDirty = false;
+    $("editorPath").textContent = data.path;
+    $("editorText").value = data.content;
+    $("editorStatus").textContent = "";
+    $("fileEditor").classList.remove("hide");
+    $("editorText").focus();
+  } catch (error) { setFileStatus(error.message); }
+}
+async function saveEditor() {
+  try {
+    await fileApi("/api/files/content?path=" + encodeURIComponent(editorPathValue), {
+      method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({content: $("editorText").value})
+    });
+    editorDirty = false;
+    $("editorStatus").textContent = "Saved";
+    loadFiles(filePathCurrent);
+  } catch (error) { $("editorStatus").textContent = error.message; }
+}
+async function runFileAction(action, values = {}) {
+  try {
+    await fileApi("/api/files/action", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action, path: selectedFile.path, ...values})
+    });
+    setFileStatus("Done");
+    loadFiles(filePathCurrent);
+  } catch (error) { setFileStatus(error.message); }
+}
+$("showKeyboard").onclick = () => {
+  $("keyboardView").classList.remove("hide");
+  $("filesView").classList.add("hide");
+  $("showKeyboard").setAttribute("aria-pressed", "true");
+  $("showFiles").setAttribute("aria-pressed", "false");
+};
+$("showFiles").onclick = () => {
+  send({t: "r"});
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("keyboardView").classList.add("hide");
+  $("filesView").classList.remove("hide");
+  $("showKeyboard").setAttribute("aria-pressed", "false");
+  $("showFiles").setAttribute("aria-pressed", "true");
+  loadFiles(filePathCurrent);
+};
+$("fileUp").onclick = () => loadFiles(filePathCurrent.split("/").slice(0, -1).join("/"));
+$("fileSearch").oninput = event => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => searchFiles(event.target.value.trim()), 180);
+};
+$("newFolder").onclick = async () => {
+  const name = prompt("New folder name");
+  if (!name) return;
+  try {
+    await fileApi("/api/files/action", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action: "mkdir", path: filePathCurrent, name})});
+    loadFiles(filePathCurrent);
+  } catch (error) { setFileStatus(error.message); }
+};
+$("uploadFiles").onclick = () => $("filePicker").click();
+$("filePicker").onchange = async event => {
+  const files = [...event.target.files];
+  if (!files.length) return;
+  const form = new FormData();
+  form.append("path", filePathCurrent);
+  files.forEach(file => form.append("files", file, file.name));
+  setFileStatus("Uploading...");
+  try {
+    const data = await fileApi("/api/files/upload", {method: "POST", body: form});
+    setFileStatus("Uploaded " + data.uploaded.length + " file" + (data.uploaded.length === 1 ? "" : "s"));
+    loadFiles(filePathCurrent);
+  } catch (error) { setFileStatus(error.message); }
+  event.target.value = "";
+};
+fileActions.forEach(button => button.onclick = async () => {
+  if (!selectedFile) return;
+  const action = button.dataset.action;
+  if (action === "edit") return openEditor(selectedFile.path);
+  if (action === "download") {
+    location.href = "/api/files/download?path=" + encodeURIComponent(selectedFile.path);
+    return;
+  }
+  if (action === "delete") {
+    if (confirm("Remove " + selectedFile.name + "?")) await runFileAction(action);
+    return;
+  }
+  if (action === "rename") {
+    const name = prompt("Rename to", selectedFile.name);
+    if (name) await runFileAction(action, {name});
+    return;
+  }
+  const destination = prompt("Destination folder path", filePathCurrent);
+  if (destination !== null) await runFileAction(action, {destination});
+});
+$("editorText").oninput = () => { editorDirty = true; $("editorStatus").textContent = "Unsaved changes"; };
+$("saveFile").onclick = saveEditor;
+$("closeEditor").onclick = () => {
+  if (editorDirty && !confirm("Discard unsaved changes?")) return;
+  $("fileEditor").classList.add("hide");
+};
+
+// keyboard
+addEventListener("keydown", e => {
+  if (!keyboardActive() || e.isComposing) return;
+  hadCode = !!e.code && e.code !== "Unidentified";
+  if (!hadCode) return;
+  if (e.code === "F5" || e.code === "F12" && e.ctrlKey) return;
+  e.preventDefault();
+  send({t: "k", c: e.code, d: 1});
+});
+addEventListener("keyup", e => {
+  if (!keyboardActive() || !e.code) return;
+  e.preventDefault();
+  send({t: "k", c: e.code, d: 0});
+});
+addEventListener("blur", () => send({t: "r"}));
+
+// phone soft keyboard (no key codes available)
+$("kb").onclick = () => $("sink").focus();
+$("sink").addEventListener("input", e => {
+  if (hadCode) { e.target.value = ""; return; }
+  if (e.inputType === "deleteContentBackward") { send({t: "k", c: "Backspace", d: 1}); send({t: "k", c: "Backspace", d: 0}); }
+  else if (e.inputType === "insertLineBreak") { send({t: "s", s: "\n"}); }
+  else if (e.data) send({t: "s", s: e.data});
+  e.target.value = "";
+});
+
+// mouse: click "Focus mouse" to capture, Esc releases
+const pad = $("pad");
+$("focus").onclick = () => pad.requestPointerLock && pad.requestPointerLock();
+document.addEventListener("pointerlockchange", () => {
+  locked = document.pointerLockElement === pad;
+  pad.classList.toggle("locked", locked);
+  pad.textContent = locked ? "Mouse focused. Press Esc to release." : "Type anywhere. Everything goes to tty1.\nUse Focus mouse to control the pointer.";
+  $("focus").textContent = locked ? "Mouse focused" : "Focus mouse";
+});
+let dx = 0, dy = 0, raf = 0;
+const flush = () => { raf = 0; if (dx || dy) send({t: "m", x: dx, y: dy}); dx = dy = 0; };
+const move = (x, y) => { dx += Math.round(x); dy += Math.round(y); raf = raf || requestAnimationFrame(flush); };
+document.addEventListener("mousemove", e => locked && move(e.movementX, e.movementY));
+document.addEventListener("mousedown", e => locked && (e.preventDefault(), send({t: "b", b: e.button, d: 1})));
+document.addEventListener("mouseup", e => locked && send({t: "b", b: e.button, d: 0}));
+document.addEventListener("wheel", e => locked && (e.preventDefault(), send({t: "w", y: e.deltaY})), {passive: false});
+document.addEventListener("contextmenu", e => locked && e.preventDefault());
+
+// touch: drag to move, tap to click
+let last, t0, moved;
+pad.addEventListener("touchstart", e => { last = e.touches[0]; t0 = Date.now(); moved = 0; });
+pad.addEventListener("touchmove", e => {
+  const t = e.touches[0]; const x = (t.clientX - last.clientX) * 1.6, y = (t.clientY - last.clientY) * 1.6;
+  moved += Math.abs(x) + Math.abs(y); last = t; move(x, y);
+});
+pad.addEventListener("touchend", () => {
+  if (moved < 8 && Date.now() - t0 < 250) { send({t: "b", b: 0, d: 1}); send({t: "b", b: 0, d: 0}); }
+});
+
+show();
+</script>
+</body>
+</html>
