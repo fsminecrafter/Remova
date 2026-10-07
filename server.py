@@ -13,9 +13,10 @@ from aiohttp import web, WSMsgType
 from evdev import UInput, ecodes as e
 
 BASE = Path(__file__).resolve().parent
-FILE_ROOT = BASE / "files"
-FILE_ROOT.mkdir(exist_ok=True)
 CFG = json.loads((BASE / "config.json").read_text())
+# File explorer root. Defaults to ./files; set "files_root" in config.json to expose another folder.
+FILE_ROOT = Path(CFG.get("files_root") or BASE / "files").expanduser()
+FILE_ROOT.mkdir(parents=True, exist_ok=True)
 SESSION_TTL = 12 * 3600
 sessions: dict[str, float] = {}
 fails: dict[str, list[float]] = {}
@@ -179,7 +180,8 @@ async def files_list(req):
         entries = [file_entry(path) for path in folder.iterdir() if not path.is_symlink()]
         entries.sort(key=lambda item: (not item["directory"], item["name"].casefold()))
         return web.json_response({"path": PurePosixPath(req.query.get("path", "")).as_posix()
-                                  if req.query.get("path") else "", "entries": entries})
+                                  if req.query.get("path") else "", "root": str(FILE_ROOT.resolve()),
+                                  "entries": entries})
     except (ValueError, OSError) as exc:
         return files_error(str(exc))
 
@@ -290,7 +292,7 @@ async def files_action(req):
     try:
         data = await req.json()
         action = data.get("action")
-        source = file_path(data.get("path", ""), allow_root=action == "mkdir")
+        source = file_path(data.get("path", ""), allow_root=action in ("mkdir", "mkfile"))
         if not source.exists():
             return files_error("Item not found.", 404)
         if action == "delete":
@@ -326,11 +328,20 @@ async def files_action(req):
                 return files_error("Enter a valid folder name.")
             destination = file_path((folder.relative_to(FILE_ROOT) / name).as_posix(), allow_root=False)
             destination.mkdir()
+        elif action == "mkfile":
+            folder = file_path(data.get("path", ""))
+            name = data.get("name", "")
+            if not isinstance(name, str) or not name or name in (".", "..") or "/" in name or "\\" in name:
+                return files_error("Enter a valid file name.")
+            destination = file_path((folder.relative_to(FILE_ROOT) / name).as_posix(), allow_root=False)
+            destination.touch(exist_ok=False)
         else:
             return files_error("Unknown file operation.")
         return web.json_response({"ok": True})
+    except FileExistsError:
+        return files_error("An item with that name already exists.", 409)
     except (ValueError, OSError) as exc:
-        return files_error(str(exc), 409 if isinstance(exc, FileExistsError) else 400)
+        return files_error(str(exc))
 
 
 # ---------- input socket ----------
