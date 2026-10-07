@@ -160,8 +160,11 @@ let editorPathValue = "", editorDirty = false;
 const fileActions = [...document.querySelectorAll("[data-action]")];
 const fileApi = async (url, options) => {
   const response = await fetch(url, options);
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "File operation failed.");
+  const text = await response.text();
+  let result = {};
+  try { result = text ? JSON.parse(text) : {}; } catch {}  // plain-text errors (404/500) are not JSON
+  if (response.status === 401) { show(); throw new Error("Logged out. Please unlock again."); }
+  if (!response.ok) throw new Error(result.error || `Server error ${response.status}: ${text.slice(0, 120) || response.statusText}`);
   return result;
 };
 const setFileStatus = message => { $("fileStatus").textContent = message; };
