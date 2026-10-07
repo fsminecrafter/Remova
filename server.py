@@ -4,7 +4,7 @@
 Input is injected through /dev/uinput, so it reaches whatever the kernel
 console (tty1) or desktop session has focus. Needs root.
 """
-import ctypes, hashlib, hmac, json, os, pwd, secrets, shutil, time
+import asyncio, ctypes, hashlib, hmac, json, os, pwd, secrets, shutil, time
 from pathlib import Path
 from pathlib import PurePosixPath
 from urllib.parse import quote
@@ -104,6 +104,15 @@ CHARS["\n"] = (e.KEY_ENTER, False)
 
 BUTTONS = [e.BTN_LEFT, e.BTN_MIDDLE, e.BTN_RIGHT]
 
+# Key repeat. The kernel ignores a second "press" for a key that is already down, so
+# holding a key only repeats if we emit repeat events (value 2) ourselves. The Linux
+# console (tty1) needs them; X11/Wayland ignore them and repeat on their own.
+# Tune with "repeat_delay_ms" / "repeat_period_ms" in config.json.
+REPEAT_DELAY = CFG.get("repeat_delay_ms", 350) / 1000
+REPEAT_PERIOD = CFG.get("repeat_period_ms", 35) / 1000
+NO_REPEAT = {e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT, e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL,
+             e.KEY_LEFTALT, e.KEY_RIGHTALT, e.KEY_LEFTMETA, e.KEY_RIGHTMETA, e.KEY_CAPSLOCK}
+
 kbd = UInput({e.EV_KEY: list(set(KEYS.values()))}, name="wifi-keyboard")
 mouse = UInput({e.EV_KEY: BUTTONS, e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL]},
                name="wifi-mouse")
@@ -124,6 +133,14 @@ def drop_file_privileges(user):
 if FILES_USER and os.geteuid() == 0:
     drop_file_privileges(FILES_USER)
 FILE_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+async def autorepeat(code):
+    await asyncio.sleep(REPEAT_DELAY)
+    while True:
+        kbd.write(e.EV_KEY, code, 2)
+        kbd.syn()
+        await asyncio.sleep(REPEAT_PERIOD)
 
 
 def tap(code, shift=False):
@@ -403,8 +420,16 @@ async def ws_handler(req):
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(req)
     down = set()
+    repeats = {}
+
+    def stop_repeat(code=None):
+        for c in ([code] if code is not None else list(repeats)):
+            task = repeats.pop(c, None)
+            if task:
+                task.cancel()
 
     def release_all():
+        stop_repeat()
         for k in list(down):
             kbd.write(e.EV_KEY, k, 0)
         down.clear()
@@ -428,8 +453,11 @@ async def ws_handler(req):
                         down.add(code)
                     else:
                         down.discard(code)
+                        stop_repeat(code)
                     kbd.write(e.EV_KEY, code, 1 if m["d"] else 0)
                     kbd.syn()
+                    if m["d"] and code not in NO_REPEAT and code not in repeats:
+                        repeats[code] = asyncio.create_task(autorepeat(code))
                 elif t == "s":  # text from soft keyboard
                     for ch in str(m["s"])[:200]:
                         if ch in CHARS:

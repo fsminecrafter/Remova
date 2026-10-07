@@ -59,6 +59,17 @@ button:disabled{opacity:.45;cursor:default}
 #editorText:focus{outline:none}
 #sink{position:fixed;opacity:0;width:1px;height:1px;left:0;top:0}
 @media(max-width:560px){header{padding:10px 12px}#filesView{padding:10px 12px 14px}.file-row{gap:4px}.file-meta{font-size:11px}.file-toolbar{gap:5px}.file-toolbar button{padding:6px 10px}}
+#pad{min-height:64px}
+#keys{display:flex;flex-direction:column;gap:4px;padding:0 10px 12px;user-select:none;-webkit-user-select:none;touch-action:none}
+.krow{display:flex;gap:4px}
+.k{flex:var(--w,1) 1 0;min-width:0;padding:10px 0;font-size:13px;text-align:center;border-radius:5px;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+.k.fn{font-size:11px;padding:6px 0;color:var(--mut)}
+.k.mod{color:var(--mut)}
+.k.down{background:color-mix(in srgb,var(--acc) 22%,transparent);border-color:var(--acc)}
+.k.latched{border-color:var(--acc);color:var(--acc)}
+.k.locked{background:var(--acc);border-color:var(--acc);color:var(--bg)}
+#bar button[aria-pressed="true"]{border-color:var(--acc);color:var(--acc)}
+@media(max-width:560px){#keys{padding:0 6px 10px;gap:3px}.krow{gap:3px}.k{font-size:12px;padding:9px 0}}
 </style>
 </head>
 <body>
@@ -82,8 +93,10 @@ button:disabled{opacity:.45;cursor:default}
   </nav>
   <div id="keyboardView">
     <div id="pad">Type anywhere. Everything goes to tty1.<br>Use Focus mouse to control the pointer.</div>
+    <div id="keys" class="hide" role="group" aria-label="On-screen keyboard"></div>
     <div id="bar">
       <button id="focus" class="primary grow">Focus mouse</button>
+      <button id="osk" aria-pressed="false" title="On-screen keyboard with Ctrl/Alt/Super, arrows, F-keys; hold a key to repeat">Keys</button>
       <button id="kb">Keyboard</button>
     </div>
   </div>
@@ -150,7 +163,7 @@ function connect() {
   if (ws && ws.readyState <= 1) return;
   ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   ws.onopen = () => $("dot").classList.add("on");
-  ws.onclose = () => { $("dot").classList.remove("on"); setTimeout(() => !$("app").classList.contains("hide") && show(), 1500); };
+  ws.onclose = () => { releaseAll(); $("dot").classList.remove("on"); setTimeout(() => !$("app").classList.contains("hide") && show(), 1500); };
 }
 const send = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
 const active = () => !$("app").classList.contains("hide");
@@ -433,7 +446,7 @@ $("showKeyboard").onclick = () => {
   $("showFiles").setAttribute("aria-pressed", "false");
 };
 $("showFiles").onclick = () => {
-  send({t: "r"});
+  releaseAll();
   if (document.pointerLockElement) document.exitPointerLock();
   $("keyboardView").classList.add("hide");
   $("filesView").classList.remove("hide");
@@ -480,6 +493,7 @@ addEventListener("keydown", e => {
   if (!hadCode) return;
   if (e.code === "F5" || e.code === "F12" && e.ctrlKey) return;
   e.preventDefault();
+  if (e.repeat) return; // the server generates key repeat
   send({t: "k", c: e.code, d: 1});
 });
 addEventListener("keyup", e => {
@@ -487,7 +501,7 @@ addEventListener("keyup", e => {
   e.preventDefault();
   send({t: "k", c: e.code, d: 0});
 });
-addEventListener("blur", () => send({t: "r"}));
+addEventListener("blur", () => releaseAll());
 
 // phone soft keyboard (no key codes available)
 $("kb").onclick = () => $("sink").focus();
@@ -498,6 +512,87 @@ $("sink").addEventListener("input", e => {
   else if (e.data) send({t: "s", s: e.data});
   e.target.value = "";
 });
+
+// on-screen keyboard: sticky modifiers (tap = next key, double-tap = lock); hold a key to repeat
+const MODS = new Set(["ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"]);
+const mods = new Map(), oskDown = new Set(), keyEls = {}, labelled = [];
+let lastModTap = {code: "", t: 0};
+const L = (c, l, s, w, fn) => ({c, l, s, w, fn});
+const letters = r => [...r].map(ch => L("Key" + ch.toUpperCase(), ch));
+const ROWS = [
+  [L("Escape", "Esc", 0, 1.5, 1), ...Array.from({length: 12}, (_, i) => L("F" + (i + 1), "F" + (i + 1), 0, 1, 1))],
+  [L("Backquote", "`", "~"), ...[..."1234567890"].map((d, i) => L("Digit" + d, d, "!@#$%^&*()"[i])), L("Minus", "-", "_"), L("Equal", "=", "+"), L("Backspace", "⌫", 0, 1.8)],
+  [L("Tab", "Tab", 0, 1.5), ...letters("qwertyuiop"), L("BracketLeft", "[", "{"), L("BracketRight", "]", "}"), L("Backslash", "\\", "|")],
+  [L("CapsLock", "Caps", 0, 1.8), ...letters("asdfghjkl"), L("Semicolon", ";", ":"), L("Quote", "'", '"'), L("Enter", "Enter", 0, 2.2)],
+  [L("ShiftLeft", "Shift", 0, 2.3), ...letters("zxcvbnm"), L("Comma", ",", "<"), L("Period", ".", ">"), L("Slash", "/", "?"), L("ShiftRight", "Shift", 0, 2.3)],
+  [L("ControlLeft", "Ctrl", 0, 1.4), L("MetaLeft", "Super", 0, 1.4), L("AltLeft", "Alt", 0, 1.4), L("Space", "Space", 0, 5), L("AltRight", "AltGr", 0, 1.4),
+   L("ArrowLeft", "←"), L("ArrowUp", "↑"), L("ArrowDown", "↓"), L("ArrowRight", "→")],
+  [L("Insert", "Ins", 0, 1, 1), L("Delete", "Del", 0, 1, 1), L("Home", "Home", 0, 1, 1), L("End", "End", 0, 1, 1), L("PageUp", "PgUp", 0, 1, 1), L("PageDown", "PgDn", 0, 1, 1)]
+];
+function relabel() {
+  const shift = mods.has("ShiftLeft") || mods.has("ShiftRight");
+  for (const [el, k] of labelled) el.textContent = shift ? (k.s || k.l.toUpperCase()) : k.l;
+}
+function setMod(code, state) {
+  const was = mods.get(code);
+  if (state) mods.set(code, state); else mods.delete(code);
+  if (!was && state) send({t: "k", c: code, d: 1});
+  if (was && !state) send({t: "k", c: code, d: 0});
+  keyEls[code].classList.toggle("latched", state === "latched");
+  keyEls[code].classList.toggle("locked", state === "locked");
+  relabel();
+}
+function tapMod(code) {
+  const now = Date.now(), cur = mods.get(code);
+  if (!cur) setMod(code, "latched");
+  else if (cur === "latched" && lastModTap.code === code && now - lastModTap.t < 400) setMod(code, "locked");
+  else setMod(code, "");
+  lastModTap = {code, t: now};
+}
+function pressKey(code) {
+  if (oskDown.has(code)) return;
+  oskDown.add(code); keyEls[code].classList.add("down");
+  send({t: "k", c: code, d: 1});
+}
+function releaseKey(code) {
+  if (!oskDown.delete(code)) return;
+  keyEls[code].classList.remove("down");
+  send({t: "k", c: code, d: 0});
+  for (const [m, state] of [...mods]) if (state === "latched") setMod(m, "");
+}
+function releaseAll() {
+  send({t: "r"});
+  oskDown.forEach(c => keyEls[c].classList.remove("down")); oskDown.clear();
+  for (const m of [...mods.keys()]) { mods.delete(m); keyEls[m].classList.remove("latched", "locked"); }
+  relabel();
+}
+for (const row of ROWS) {
+  const r = document.createElement("div"); r.className = "krow";
+  for (const k of row) {
+    const b = document.createElement("button");
+    b.type = "button"; b.tabIndex = -1; b.textContent = k.l; b.setAttribute("aria-label", k.c);
+    b.className = "k" + (k.fn ? " fn" : "") + (MODS.has(k.c) ? " mod" : "");
+    b.style.setProperty("--w", k.w || 1);
+    keyEls[k.c] = b;
+    if (k.s || /^[a-z]$/.test(k.l)) labelled.push([b, k]);
+    if (MODS.has(k.c)) b.addEventListener("pointerdown", e => { e.preventDefault(); tapMod(k.c); });
+    else {
+      b.addEventListener("pointerdown", e => { e.preventDefault(); b.setPointerCapture(e.pointerId); pressKey(k.c); });
+      for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, () => releaseKey(k.c));
+    }
+    b.addEventListener("contextmenu", e => e.preventDefault());
+    r.appendChild(b);
+  }
+  $("keys").appendChild(r);
+}
+function setOsk(on) {
+  $("keys").classList.toggle("hide", !on);
+  $("osk").setAttribute("aria-pressed", String(on));
+  try { localStorage.setItem("wk-osk", on ? "1" : "0"); } catch {}
+}
+let oskPref = null; try { oskPref = localStorage.getItem("wk-osk"); } catch {}
+setOsk(oskPref === null ? matchMedia("(pointer:coarse)").matches : oskPref === "1");
+$("osk").onclick = () => { releaseAll(); setOsk($("keys").classList.contains("hide")); };
 
 // mouse: click "Focus mouse" to capture, Esc releases
 const pad = $("pad");
