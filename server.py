@@ -164,7 +164,8 @@ def files_error(message, status=400):
 
 
 def check_files_auth(req):
-    return authed(req) or files_error("Authentication required.", 401)
+    """Return an error response if not logged in, otherwise None."""
+    return None if authed(req) else files_error("Authentication required.", 401)
 
 
 async def files_list(req):
