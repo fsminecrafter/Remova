@@ -4,7 +4,7 @@
 Input is injected through /dev/uinput, so it reaches whatever the kernel
 console (tty1) or desktop session has focus. Needs root.
 """
-import hashlib, hmac, json, secrets, shutil, time
+import ctypes, hashlib, hmac, json, os, pwd, secrets, shutil, time
 from pathlib import Path
 from pathlib import PurePosixPath
 from urllib.parse import quote
@@ -14,9 +14,44 @@ from evdev import UInput, ecodes as e
 
 BASE = Path(__file__).resolve().parent
 CFG = json.loads((BASE / "config.json").read_text())
-# File explorer root. Defaults to ./files; set "files_root" in config.json to expose another folder.
-FILE_ROOT = Path(CFG.get("files_root") or BASE / "files").expanduser()
-FILE_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def find_files_user():
+    """Account whose home folder is the default file root: whoever ran this, never root.
+    Run directly -> the current user. Run with sudo -> SUDO_USER. Run as the systemd
+    service -> the user setup.sh recorded as "files_user" in config.json."""
+    names = []
+    if os.geteuid() != 0:
+        names.append(pwd.getpwuid(os.geteuid()).pw_name)
+    else:
+        names.append(os.environ.get("SUDO_USER"))
+        uid = os.environ.get("PKEXEC_UID", "")
+        if uid.isdigit():
+            try:
+                names.append(pwd.getpwuid(int(uid)).pw_name)
+            except KeyError:
+                pass
+        names.append(CFG.get("files_user"))
+    for name in names:
+        try:
+            user = pwd.getpwnam(name) if name else None
+        except KeyError:
+            continue
+        if user and user.pw_uid != 0 and Path(user.pw_dir).is_dir():
+            return user
+    return None
+
+
+FILES_USER = None if CFG.get("files_root") else find_files_user()
+# File explorer root. Default: ~ of the user who ran it (never root's home). Set
+# "files_root" in config.json to expose another folder; with no non-root user to
+# fall back on (a real root login) it uses ./files.
+if CFG.get("files_root"):
+    FILE_ROOT = Path(CFG["files_root"]).expanduser()
+elif FILES_USER:
+    FILE_ROOT = Path(FILES_USER.pw_dir)
+else:
+    FILE_ROOT = BASE / "files"
 SESSION_TTL = 12 * 3600
 sessions: dict[str, float] = {}
 fails: dict[str, list[float]] = {}
@@ -72,6 +107,23 @@ BUTTONS = [e.BTN_LEFT, e.BTN_MIDDLE, e.BTN_RIGHT]
 kbd = UInput({e.EV_KEY: list(set(KEYS.values()))}, name="wifi-keyboard")
 mouse = UInput({e.EV_KEY: BUTTONS, e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL]},
                name="wifi-mouse")
+
+
+def drop_file_privileges(user):
+    """The server runs as root for /dev/uinput, but the file explorer should act as the
+    user whose home it shows: files they create belong to them and root-only files stay
+    out of reach. Changing only the filesystem uid keeps the open uinput devices working."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    os.initgroups(user.pw_name, user.pw_gid)
+    libc.setfsgid(user.pw_gid)
+    libc.setfsuid(user.pw_uid)
+    if libc.setfsuid(-1) != user.pw_uid:  # returns the current fsuid
+        raise RuntimeError("could not switch file access to " + user.pw_name)
+
+
+if FILES_USER and os.geteuid() == 0:
+    drop_file_privileges(FILES_USER)
+FILE_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def tap(code, shift=False):
