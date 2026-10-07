@@ -29,12 +29,17 @@ python3 -m venv "$DEST/venv"
   echo "evdev failed to build. Install: gcc python3-dev linux-headers-\$(uname -r), then rerun."; exit 1; }
 
 echo "Writing config.json (hash only, no plaintext)..."
-PW="$PW" PORT="$PORT" "$DEST/venv/bin/python" - <<'PY'
+FILES_USER="${SUDO_USER:-}"
+[ "$FILES_USER" = root ] && FILES_USER=""
+PW="$PW" PORT="$PORT" FILES_USER="$FILES_USER" "$DEST/venv/bin/python" - <<'PY'
 import hashlib, json, os, secrets
 salt = secrets.token_bytes(16)
 h = hashlib.scrypt(os.environ["PW"].encode(), salt=salt, n=2**14, r=8, p=1, dklen=32)
 cfg = {"host": "0.0.0.0", "port": int(os.environ["PORT"]), "n": 2**14,
        "salt": salt.hex(), "hash": h.hex()}
+# File explorer starts in the home of the user who ran setup (not root).
+if os.environ.get("FILES_USER"):
+    cfg["files_user"] = os.environ["FILES_USER"]
 with open("/opt/wifi-keyboard/config.json", "w") as f:
     json.dump(cfg, f, indent=2)
 PY
@@ -56,7 +61,6 @@ WorkingDirectory=$DEST
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
-ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
