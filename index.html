@@ -33,17 +33,24 @@ button:hover{border-color:var(--mut)}
 #bar .grow{flex:1}
 #bar .primary{border-color:var(--acc);color:var(--acc)}
 #filesView{flex:1;display:flex;flex-direction:column;gap:10px;padding:14px 18px 18px;min-height:0}
-.file-toolbar,.file-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.file-toolbar #fileSearch{flex:1;min-width:150px}
-.file-actions button:disabled{opacity:.45;cursor:default}
-#fileCrumbs{display:flex;align-items:center;gap:6px;min-height:32px;overflow:auto;white-space:nowrap;color:var(--mut)}
-#fileCrumbs button{padding:3px 8px}
+.file-toolbar{display:flex;align-items:center;gap:8px}
+.file-toolbar #filePath,.file-toolbar #fileSearch{flex:1;min-width:0}
+#filePath{background:color-mix(in srgb,var(--fg) 4%,transparent)}
+button:disabled{opacity:.45;cursor:default}
 #fileList{flex:1;min-height:100px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.file-row{display:grid;grid-template-columns:28px minmax(100px,1fr) auto;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--line)}
-.file-row.selected{background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.file-row{display:grid;grid-template-columns:minmax(100px,1fr) auto;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--line);user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.file-row:hover{background:color-mix(in srgb,var(--fg) 5%,transparent)}
+.file-row.selected{background:color-mix(in srgb,var(--acc) 12%,transparent)}
 .file-name{border:0;text-align:left;padding:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-name.dir{color:var(--acc)}
 .file-meta{color:var(--mut);font-size:12px;white-space:nowrap}
+.file-empty{padding:28px 8px;text-align:center;color:var(--mut);font-size:13px}
 #fileStatus{min-height:1.5em;color:var(--mut);font-size:13px}
+#ctxMenu{position:fixed;z-index:5;min-width:180px;max-width:90vw;display:flex;flex-direction:column;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.28)}
+#ctxMenu button{border:0;text-align:left;padding:8px 12px;white-space:nowrap}
+#ctxMenu button:hover:not(:disabled),#ctxMenu button:focus-visible{background:color-mix(in srgb,var(--acc) 14%,transparent)}
+#ctxMenu button.danger{color:var(--bad)}
+#ctxMenu hr{border:0;border-top:1px solid var(--line);margin:4px 0;width:100%}
 #fileEditor{position:fixed;inset:0;background:var(--bg);z-index:2;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 18px env(safe-area-inset-bottom)}
 #editorTop,#editorBottom{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
 #editorTop strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:auto}
@@ -51,7 +58,7 @@ button:hover{border-color:var(--mut)}
 #editorText{flex:1;resize:none;width:100%;min-height:0;border:0;border-radius:0;background:transparent;color:var(--fg);font:14px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:16px 0;tab-size:4}
 #editorText:focus{outline:none}
 #sink{position:fixed;opacity:0;width:1px;height:1px;left:0;top:0}
-@media(max-width:560px){header{padding:10px 12px}#filesView{padding:10px 12px 14px}.file-row{grid-template-columns:24px minmax(60px,1fr) auto;gap:4px}.file-meta{font-size:11px}.file-actions{gap:5px}.file-actions button{padding:6px 8px}}
+@media(max-width:560px){header{padding:10px 12px}#filesView{padding:10px 12px 14px}.file-row{gap:4px}.file-meta{font-size:11px}.file-toolbar{gap:5px}.file-toolbar button{padding:6px 10px}}
 </style>
 </head>
 <body>
@@ -83,22 +90,17 @@ button:hover{border-color:var(--mut)}
   <section id="filesView" class="hide" aria-label="File explorer">
     <div class="file-toolbar">
       <button id="fileUp" title="Go to parent folder" aria-label="Go to parent folder">Up</button>
-      <button id="newFolder">New folder</button>
-      <button id="uploadFiles">Upload</button>
-      <input id="filePicker" type="file" multiple class="hide">
+      <input id="filePath" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Current folder (type a path and press Enter)" placeholder="Type a path, press Enter">
+      <button id="fileGo">Go</button>
+      <button id="fileMenu" aria-haspopup="menu" title="Folder actions">Menu</button>
+    </div>
+    <div class="file-toolbar">
       <input id="fileSearch" type="search" placeholder="Search files" aria-label="Search files">
+      <input id="filePicker" type="file" multiple class="hide">
     </div>
-    <div class="file-actions">
-      <button data-action="edit" disabled>Edit</button>
-      <button data-action="download" disabled>Download</button>
-      <button data-action="rename" disabled>Rename</button>
-      <button data-action="copy" disabled>Copy</button>
-      <button data-action="move" disabled>Move</button>
-      <button data-action="delete" disabled>Remove</button>
-    </div>
-    <div id="fileCrumbs" aria-label="Current folder"></div>
     <div id="fileStatus" role="status"></div>
     <div id="fileList" role="list"></div>
+    <div id="ctxMenu" class="hide" role="menu"></div>
     <section id="fileEditor" class="hide" aria-label="File editor">
       <div id="editorTop"><strong id="editorPath"></strong><button id="closeEditor" aria-label="Close editor">Close</button></div>
       <textarea id="editorText" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="File contents"></textarea>
@@ -155,55 +157,50 @@ const active = () => !$("app").classList.contains("hide");
 const keyboardActive = () => active() && !$("keyboardView").classList.contains("hide");
 
 // file explorer
-let filePathCurrent = "", selectedFile = null, searchTimer, listRequest = 0;
-let editorPathValue = "", editorDirty = false;
-const fileActions = [...document.querySelectorAll("[data-action]")];
+let filePathCurrent = "", fileRoot = "", selectedFile = null, searchTimer, listRequest = 0, searching = false;
+let editorPathValue = "", editorDirty = false, clipboard = null, suppressClick = false;
 const fileApi = async (url, options) => {
   const response = await fetch(url, options);
   const text = await response.text();
   let result = {};
   try { result = text ? JSON.parse(text) : {}; } catch {}  // plain-text errors (404/500) are not JSON
   if (response.status === 401) { show(); throw new Error("Logged out. Please unlock again."); }
-  if (!response.ok) throw new Error(result.error || `Server error ${response.status}: ${text.slice(0, 120) || response.statusText}`);
+  if (!response.ok) {
+    const error = new Error(result.error || `Server error ${response.status}: ${text.slice(0, 120) || response.statusText}`);
+    error.status = response.status;
+    throw error;
+  }
   return result;
 };
+const postJson = body => ({method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
 const setFileStatus = message => { $("fileStatus").textContent = message; };
+const parentOf = path => path.split("/").slice(0, -1).join("/");
+const joinPath = (folder, name) => folder ? folder + "/" + name : name;
+const rootBase = () => fileRoot.replace(/\/+$/, "");
+function updatePathBar() {
+  $("filePath").value = rootBase() + (filePathCurrent ? "/" + filePathCurrent : "") || "/";
+  $("fileUp").disabled = !filePathCurrent;
+}
+function relFromTyped(value) {
+  let v = value.trim().replace(/\\/g, "/");
+  const base = rootBase();
+  if (v === base || v.startsWith(base + "/")) v = v.slice(base.length);
+  else if (v.startsWith("/")) throw new Error("Only paths inside " + (fileRoot || "the file area") + " are available.");
+  return v.split("/").filter(part => part && part !== ".").join("/");
+}
 const setSelection = entry => {
   selectedFile = entry;
-  fileActions.forEach(button => {
-    button.disabled = !entry || (button.dataset.action === "edit" && entry.directory) ||
-      (button.dataset.action === "download" && entry.directory);
-  });
-  document.querySelectorAll(".file-row").forEach(row => row.classList.toggle("selected", row.dataset.path === (entry && entry.path)));
+  document.querySelectorAll(".file-row").forEach(row => row.classList.toggle("selected", !!entry && row.dataset.path === entry.path));
 };
-function renderCrumbs(path) {
-  const crumbs = $("fileCrumbs");
-  crumbs.replaceChildren();
-  const parts = path ? path.split("/") : [];
-  const rootButton = document.createElement("button");
-  rootButton.textContent = "files";
-  rootButton.onclick = () => loadFiles("");
-  crumbs.append(rootButton);
-  let partial = "";
-  parts.forEach((part, index) => {
-    const divider = document.createElement("span");
-    divider.textContent = "/";
-    const button = document.createElement("button");
-    partial = partial ? partial + "/" + part : part;
-    const target = partial;
-    button.textContent = part;
-    button.onclick = () => loadFiles(target);
-    crumbs.append(divider, button);
-  });
-}
+const formatSize = size => size < 1024 ? size + " B" : size < 1048576 ? (size / 1024).toFixed(1) + " KB" : (size / 1048576).toFixed(1) + " MB";
+
 function renderFiles(entries) {
   const list = $("fileList");
   list.replaceChildren();
   if (!entries.length) {
     const empty = document.createElement("div");
-    empty.className = "file-meta";
-    empty.textContent = "No files";
-    empty.style.padding = "12px 4px";
+    empty.className = "file-empty";
+    empty.textContent = searching ? "No matches." : "This folder is empty. Right-click (or long-press) here for New file, New folder and Upload.";
     list.append(empty);
     return;
   }
@@ -211,70 +208,81 @@ function renderFiles(entries) {
     const row = document.createElement("div");
     row.className = "file-row";
     row.dataset.path = entry.path;
+    row.entry = entry;
     row.setAttribute("role", "listitem");
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.checked = !!selectedFile && selectedFile.path === entry.path;
-    check.setAttribute("aria-label", "Select " + entry.name);
-    check.onchange = () => setSelection(check.checked ? entry : null);
     const name = document.createElement("button");
-    name.className = "file-name";
-    name.textContent = (entry.directory ? "[DIR] " : "") + entry.name;
-    name.title = entry.name;
-    name.onclick = () => entry.directory ? loadFiles(entry.path) : openEditor(entry.path);
+    name.className = "file-name" + (entry.directory ? " dir" : "");
+    name.textContent = entry.name + (entry.directory ? "/" : "");
+    name.title = searching ? entry.path : entry.name;
+    name.onclick = () => {
+      if (suppressClick) { suppressClick = false; return; }
+      entry.directory ? loadFiles(entry.path) : openEditor(entry.path);
+    };
     const meta = document.createElement("span");
     meta.className = "file-meta";
     meta.textContent = entry.directory ? "folder" : formatSize(entry.size);
-    row.append(check, name, meta);
+    row.append(name, meta);
     list.append(row);
-    if (selectedFile && selectedFile.path === entry.path) row.classList.add("selected");
   });
 }
-function formatSize(size) {
-  if (size < 1024) return size + " B";
-  if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
-  return (size / (1024 * 1024)).toFixed(1) + " MB";
-}
+
+// returns null on success, or the Error
 async function loadFiles(path = filePathCurrent) {
   const request = ++listRequest;
-  filePathCurrent = path;
-  selectedFile = null;
+  searching = false;
   setSelection(null);
   $("fileSearch").value = "";
-  renderCrumbs(path);
   setFileStatus("Loading...");
   try {
     const data = await fileApi("/api/files?path=" + encodeURIComponent(path));
-    if (request !== listRequest) return;
+    if (request !== listRequest) return null;
+    filePathCurrent = path;
+    fileRoot = data.root || fileRoot;
+    updatePathBar();
     renderFiles(data.entries);
     setFileStatus(data.entries.length + (data.entries.length === 1 ? " item" : " items"));
-  } catch (error) { setFileStatus(error.message); }
+    return null;
+  } catch (error) {
+    if (request === listRequest) { setFileStatus(error.message); updatePathBar(); }
+    return error;
+  }
 }
 async function searchFiles(query) {
   const request = ++listRequest;
-  selectedFile = null;
   setSelection(null);
   if (!query) { loadFiles(filePathCurrent); return; }
-  $("fileCrumbs").textContent = "Search results";
   setFileStatus("Searching...");
   try {
     const data = await fileApi("/api/files/search?q=" + encodeURIComponent(query));
     if (request !== listRequest) return;
+    searching = true;
     renderFiles(data.entries);
-    setFileStatus(data.entries.length + " result" + (data.entries.length === 1 ? "" : "s"));
+    setFileStatus(data.entries.length + " result" + (data.entries.length === 1 ? "" : "s") + " in " + (rootBase() || "/"));
   } catch (error) { setFileStatus(error.message); }
 }
-async function openEditor(path) {
+async function goToTyped() {
+  let rel;
+  try { rel = relFromTyped($("filePath").value); } catch (error) { setFileStatus(error.message); updatePathBar(); return; }
+  const error = await loadFiles(rel);
+  if (!error || error.status !== 404 || !rel) return;
+  const opened = await openEditor(rel, true);  // not a folder: maybe a file
+  if (!opened) { if (parentOf(rel) !== filePathCurrent) loadFiles(parentOf(rel)); return; }
+  setFileStatus(opened.status === 404 ? "Nothing found at that path." : opened.message);
+}
+
+// returns null on success, or the Error
+async function openEditor(path, silent = false) {
   try {
     const data = await fileApi("/api/files/content?path=" + encodeURIComponent(path));
     editorPathValue = data.path;
     editorDirty = false;
-    $("editorPath").textContent = data.path;
+    $("editorPath").textContent = (rootBase() + "/" + data.path) || data.path;
     $("editorText").value = data.content;
     $("editorStatus").textContent = "";
     $("fileEditor").classList.remove("hide");
     $("editorText").focus();
-  } catch (error) { setFileStatus(error.message); }
+    return null;
+  } catch (error) { if (!silent) setFileStatus(error.message); return error; }
 }
 async function saveEditor() {
   try {
@@ -287,17 +295,138 @@ async function saveEditor() {
     loadFiles(filePathCurrent);
   } catch (error) { $("editorStatus").textContent = error.message; }
 }
-async function runFileAction(action, values = {}) {
+async function runFileAction(action, path, values = {}) {
   try {
-    await fileApi("/api/files/action", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({action, path: selectedFile.path, ...values})
-    });
+    await fileApi("/api/files/action", postJson({action, path, ...values}));
     setFileStatus("Done");
-    loadFiles(filePathCurrent);
-  } catch (error) { setFileStatus(error.message); }
+    if (searching) searchFiles($("fileSearch").value.trim()); else loadFiles(filePathCurrent);
+    return true;
+  } catch (error) { setFileStatus(error.message); return false; }
 }
+
+// actions (all reached from the context menu)
+async function createItem(kind) {
+  const name = prompt(kind === "mkdir" ? "New folder name" : "New file name");
+  if (!name) return;
+  if (await runFileAction(kind, filePathCurrent, {name}) && kind === "mkfile") openEditor(joinPath(filePathCurrent, name));
+}
+async function renameEntry(entry) {
+  const name = prompt("Rename to", entry.name);
+  if (name && name !== entry.name) runFileAction("rename", entry.path, {name});
+}
+function removeEntry(entry) {
+  const what = entry.directory ? "folder " + entry.name + " and everything in it" : entry.name;
+  if (confirm("Remove " + what + "?")) runFileAction("delete", entry.path);
+}
+function downloadEntry(entry) {
+  const link = document.createElement("a");
+  link.href = "/api/files/download?path=" + encodeURIComponent(entry.path);
+  link.download = entry.name;
+  document.body.append(link); link.click(); link.remove();
+}
+async function pasteInto(folder) {
+  const item = clipboard;
+  if (!item) return;
+  if (await runFileAction(item.mode, item.entry.path, {destination: folder}) && item.mode === "move") clipboard = null;
+}
+const holdEntry = (mode, entry) => { clipboard = {mode, entry}; setFileStatus((mode === "copy" ? "Copied " : "Cut ") + entry.name + ". Right-click a folder or empty space and choose Paste."); };
+
+function entryMenu(entry) {
+  const items = entry.directory
+    ? [{label: "Open", run: () => loadFiles(entry.path)}]
+    : [{label: "Edit", run: () => openEditor(entry.path)}, {label: "Download", run: () => downloadEntry(entry)}];
+  if (searching) items.push({label: "Show in folder", run: () => loadFiles(parentOf(entry.path))});
+  items.push("-",
+    {label: "Rename", run: () => renameEntry(entry)},
+    {label: "Copy", run: () => holdEntry("copy", entry)},
+    {label: "Cut (move)", run: () => holdEntry("move", entry)});
+  if (entry.directory) items.push({label: "Paste into folder", disabled: !clipboard, run: () => pasteInto(entry.path)});
+  items.push("-", {label: "Remove", danger: true, run: () => removeEntry(entry)});
+  return items;
+}
+const folderMenu = () => [
+  {label: "New file", run: () => createItem("mkfile")},
+  {label: "New folder", run: () => createItem("mkdir")},
+  {label: "Upload here", run: () => $("filePicker").click()},
+  "-",
+  {label: clipboard ? "Paste " + clipboard.entry.name : "Paste", disabled: !clipboard, run: () => pasteInto(filePathCurrent)},
+  "-",
+  {label: "Refresh", run: () => loadFiles(filePathCurrent)}
+];
+
+// context menu
+const menu = $("ctxMenu");
+const closeMenu = () => menu.classList.add("hide");
+function openMenu(x, y, items) {
+  menu.replaceChildren();
+  items.forEach(item => {
+    if (item === "-") { menu.append(document.createElement("hr")); return; }
+    const button = document.createElement("button");
+    button.textContent = item.label;
+    button.disabled = !!item.disabled;
+    button.setAttribute("role", "menuitem");
+    if (item.danger) button.className = "danger";
+    button.onclick = () => { closeMenu(); item.run(); };
+    menu.append(button);
+  });
+  menu.classList.remove("hide");
+  const box = menu.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(x, innerWidth - box.width - 4)) + "px";
+  menu.style.top = Math.max(4, Math.min(y, innerHeight - box.height - 4)) + "px";
+  const first = menu.querySelector("button:not(:disabled)");
+  if (first) first.focus();
+}
+function openContextAt(target, x, y) {
+  const row = target.closest && target.closest(".file-row");
+  if (row) { setSelection(row.entry); openMenu(x, y, entryMenu(row.entry)); }
+  else { setSelection(null); openMenu(x, y, folderMenu()); }
+}
+$("filesView").addEventListener("contextmenu", event => {
+  if (event.target.closest("input, textarea, #fileEditor, #ctxMenu")) return;  // keep native menu for text fields
+  event.preventDefault();
+  openContextAt(event.target, event.clientX, event.clientY);
+});
+$("fileMenu").onclick = event => {
+  event.stopPropagation();
+  const box = event.currentTarget.getBoundingClientRect();
+  setSelection(null);
+  openMenu(box.right - 190, box.bottom + 4, folderMenu());
+};
+document.addEventListener("pointerdown", event => { if (!menu.contains(event.target) && event.target.id !== "fileMenu") closeMenu(); });
+addEventListener("keydown", event => {
+  if (menu.classList.contains("hide")) return;
+  if (event.key === "Escape") { closeMenu(); return; }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const buttons = [...menu.querySelectorAll("button:not(:disabled)")];
+    const at = buttons.indexOf(document.activeElement);
+    buttons[(at + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus();
+  }
+});
+addEventListener("resize", closeMenu);
+addEventListener("blur", closeMenu);
+$("fileList").addEventListener("scroll", closeMenu);
+
+// touch long-press = right-click
+let pressTimer = 0, pressX = 0, pressY = 0;
+const cancelPress = () => { clearTimeout(pressTimer); pressTimer = 0; };
+$("fileList").addEventListener("pointerdown", event => {
+  if (event.pointerType === "mouse") return;
+  pressX = event.clientX; pressY = event.clientY;
+  const target = event.target;
+  cancelPress();
+  pressTimer = setTimeout(() => {
+    pressTimer = 0;
+    suppressClick = true; setTimeout(() => { suppressClick = false; }, 600);
+    openContextAt(target, pressX, pressY);
+  }, 500);
+});
+$("fileList").addEventListener("pointermove", event => { if (pressTimer && Math.hypot(event.clientX - pressX, event.clientY - pressY) > 10) cancelPress(); });
+for (const type of ["pointerup", "pointercancel"]) $("fileList").addEventListener(type, cancelPress);
+
+// view switching and toolbar
 $("showKeyboard").onclick = () => {
+  closeMenu();
   $("keyboardView").classList.remove("hide");
   $("filesView").classList.add("hide");
   $("showKeyboard").setAttribute("aria-pressed", "true");
@@ -312,21 +441,17 @@ $("showFiles").onclick = () => {
   $("showFiles").setAttribute("aria-pressed", "true");
   loadFiles(filePathCurrent);
 };
-$("fileUp").onclick = () => loadFiles(filePathCurrent.split("/").slice(0, -1).join("/"));
+$("fileUp").onclick = () => loadFiles(parentOf(filePathCurrent));
+$("fileGo").onclick = goToTyped;
+$("filePath").onfocus = event => event.target.select();
+$("filePath").onkeydown = event => {
+  if (event.key === "Enter") { event.preventDefault(); goToTyped(); }
+  else if (event.key === "Escape") { updatePathBar(); event.target.blur(); }
+};
 $("fileSearch").oninput = event => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => searchFiles(event.target.value.trim()), 180);
 };
-$("newFolder").onclick = async () => {
-  const name = prompt("New folder name");
-  if (!name) return;
-  try {
-    await fileApi("/api/files/action", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({action: "mkdir", path: filePathCurrent, name})});
-    loadFiles(filePathCurrent);
-  } catch (error) { setFileStatus(error.message); }
-};
-$("uploadFiles").onclick = () => $("filePicker").click();
 $("filePicker").onchange = async event => {
   const files = [...event.target.files];
   if (!files.length) return;
@@ -341,26 +466,6 @@ $("filePicker").onchange = async event => {
   } catch (error) { setFileStatus(error.message); }
   event.target.value = "";
 };
-fileActions.forEach(button => button.onclick = async () => {
-  if (!selectedFile) return;
-  const action = button.dataset.action;
-  if (action === "edit") return openEditor(selectedFile.path);
-  if (action === "download") {
-    location.href = "/api/files/download?path=" + encodeURIComponent(selectedFile.path);
-    return;
-  }
-  if (action === "delete") {
-    if (confirm("Remove " + selectedFile.name + "?")) await runFileAction(action);
-    return;
-  }
-  if (action === "rename") {
-    const name = prompt("Rename to", selectedFile.name);
-    if (name) await runFileAction(action, {name});
-    return;
-  }
-  const destination = prompt("Destination folder path", filePathCurrent);
-  if (destination !== null) await runFileAction(action, {destination});
-});
 $("editorText").oninput = () => { editorDirty = true; $("editorStatus").textContent = "Unsaved changes"; };
 $("saveFile").onclick = saveEditor;
 $("closeEditor").onclick = () => {
